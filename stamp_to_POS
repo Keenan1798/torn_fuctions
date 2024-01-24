@@ -1,0 +1,2 @@
+stamp_to_POS <- function(stamp){
+    as.POSIXct(stamp, origin = "1970-01-01", tz = "GMT")}
