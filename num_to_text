@@ -1,0 +1,15 @@
+num_to_text <- function(current_stat_amount) {
+  if (current_stat_amount >= 1e12) {
+    stat_text_num <- paste0(round(current_stat_amount / 1e12, 3), "t")
+  } else if (current_stat_amount >= 1e9) {
+    stat_text_num <- paste0(round(current_stat_amount / 1e9, 3), "b")
+  } else if (current_stat_amount >= 1e6) {
+    stat_text_num <- paste0(round(current_stat_amount / 1e6, 2), "m")
+  } else if (current_stat_amount >= 1e3) {
+    stat_text_num <- paste0(round(current_stat_amount / 1e3, 1), "k")
+  } else {
+    stat_text_num <- as.character(current_stat_amount)
+  }
+  
+  return(stat_text_num)
+}
