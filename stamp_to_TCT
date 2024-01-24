@@ -1,0 +1,3 @@
+stamp_to_TCT <- function(stamp){
+  paste(substr(as.character(as.POSIXct(stamp, origin = "1970-01-01", tz = "GMT")), 1, 16), "TCT")
+}
