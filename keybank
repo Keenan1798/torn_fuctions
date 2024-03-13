@@ -1,1 +1,13 @@
-
+keys <- as.data.frame(rbind(
+c("iSwhRFVeNsZFGTVyz", "admirablepanda") ,
+c("TSxDtrjq24QNWWIxy", "lihndapanda"),
+c("zqtsUtW9jWJztdKde", "Xerxia"),
+c("xWJlFG4I8czxrQxGb", "keenan"),
+c("n8Enoo4jUYOWumV6F", "killatofu"),
+c("2LZgx3ekalke8z3EW", "Rexarsama"),
+c("R52dCBB0rBwvmz0Hf", "qbix"),
+c("TqX55JKQ8GFWtifZg", "mikesta"),
+c("b1lFICmdN7wgAAG9o", "Anna_Graem"),
+c("YipmL7SMrPZjJa128", "JustDisGuy")
+))
+names(keys) <- c("key", "user")
