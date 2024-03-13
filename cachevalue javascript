@@ -2,6 +2,7 @@
 // @name         Cache Value Calculator
 // @description  Calculate total market value of selected caches
 // @author       Keenan
+// @version      1
 // @match        https://www.torn.com/war.php*
 // ==/UserScript==
 
