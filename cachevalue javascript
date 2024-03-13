@@ -1,0 +1,117 @@
+// ==UserScript==
+// @name         Cache Value Calculator
+// @namespace    http://example.com/
+// @version      1
+// @description  Calculate total market value of selected caches
+// @author       Keenan
+// @match        https://www.torn.com/war.php*
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    async function processSelectedText(selectedText) {
+        const regex = /\b(\d+)x?\s+([^,]+)/g;
+        const matches = [...selectedText.matchAll(regex)];
+
+        const cacheTable = matches.map(match => ({
+            Quantity: parseInt(match[1]),
+            cache: match[2].trim()
+        }));
+
+        return cacheTable;
+    }
+
+    async function fetchCaches() {
+        const apiUrl = 'https://api.torn.com/torn/1118,1119,1120,1121,1122?selections=items&key=A9Q3z3FE7U4aTQDS';
+
+        try {
+            const response = await fetch(apiUrl);
+            const data = await response.json();
+
+            const caches = Object.keys(data.items).map(key => ({
+                cache: data.items[key].name,
+                market: data.items[key].market_value
+            }));
+
+            return caches;
+        } catch (error) {
+            throw new Error('Error fetching cache values: ' + error.message);
+        }
+    }
+
+    async function calculateTotalValue(selectedText) {
+        try {
+            const cacheTable = await processSelectedText(selectedText);
+            const caches = await fetchCaches();
+
+            const resultTable = cacheTable.map(entry => {
+                const cacheInfo = caches.find(cache => cache.cache === entry.cache);
+                return {
+                    ...entry,
+                    market: cacheInfo ? cacheInfo.market : 0,
+                    total: entry.Quantity * (cacheInfo ? cacheInfo.market : 0)
+                };
+            });
+
+            const totalQuantity = resultTable.reduce((sum, entry) => sum + entry.Quantity, 0);
+            const totalMarketValue = resultTable.reduce((sum, entry) => sum + entry.total, 0);
+
+            alert(`Caches:\n${resultTable.map(entry => `${entry.Quantity}x ${entry.cache} @ $${formatNumber(entry.market)} each: $${formatNumber(entry.total)}`).join('\n')}\n\nTotal: ${totalQuantity} caches with total market value of $${formatNumber(totalMarketValue)}`);
+        } catch (error) {
+            console.error('Error:', error.message);
+            alert('Error processing selected text. Please try again.');
+        }
+    }
+    function formatNumber(num) {
+    if (isNaN(num)) {
+        return 'NA';
+    } else if (num >= 1e12) {
+        return (num / 1e12).toFixed(3) + 't';
+    } else if (num >= 1e9) {
+        return (num / 1e9).toFixed(3) + 'b';
+    } else if (num >= 1e6) {
+        return (num / 1e6).toFixed(2) + 'm';
+    } else if (num >= 1e3) {
+        return (num / 1e3).toFixed(1) + 'k';
+    } else {
+        return num.toString();
+    }
+}
+   function createCalculateButton() {
+        var calculateButton = document.createElement('button');
+        calculateButton.textContent = '$$$Cache$$$';
+        calculateButton.style.position = 'fixed';
+       calculateButton.style.top = '20px';
+       calculateButton.style.left = '20px';
+        calculateButton.addEventListener('click', handleCalculateButtonClick);
+        document.body.appendChild(calculateButton);
+    }
+
+     function handleCalculateButtonClick() {
+        var selectedText = getSelectedText();
+        if (selectedText) {
+            calculateTotalValue(selectedText);
+        } else {
+            alert('Highlight text before clicking (i.e. "2x Armor Cache")');
+        }
+    }
+
+    function getSelectedText() {
+        var text = '';
+        if (window.getSelection) {
+            text = window.getSelection().toString();
+        } else if (document.selection && document.selection.type !== 'Control') {
+            text = document.selection.createRange().text;
+        }
+        return text.trim();
+    }
+
+    function init() {
+        createCalculateButton();
+    }
+
+    // Initialize the userscript
+    init();
+
+})();
