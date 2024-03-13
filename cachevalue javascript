@@ -1,6 +1,5 @@
 // ==UserScript==
 // @name         Cache Value Calculator
-// @namespace    http://example.com/
 // @version      1
 // @description  Calculate total market value of selected caches
 // @author       Keenan
@@ -23,7 +22,7 @@
     }
 
     async function fetchCaches() {
-        const apiUrl = 'https://api.torn.com/torn/1118,1119,1120,1121,1122?selections=items&key=A9Q3z3FE7U4aTQDS';
+        const apiUrl = 'https://api.torn.com/torn/1118,1119,1120,1121,1122?selections=items&key=XXX';
 
         try {
             const response = await fetch(apiUrl);
