@@ -1,5 +1,4 @@
-keylist <- as.data.frame(rbind(
+as.data.frame(rbind(
 c("BOffyS8pMm5RFtHnB", "keenan"),
 c("BYmPB0dwbBaYUFY5I", "mrhyde")
 ))
-names(keylist) <- c("key", "user")
