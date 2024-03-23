@@ -2,6 +2,7 @@
 keys <- as.data.frame(rbind(
 c("BOffyS8pMm5RFtHnB", "keenan") ,
 c("BYmPB0dwbBaYUFY5I", "mrhyde") ,
-c("KAdESYSpD6Gno6PBF", "Braxlaw")
+c("KAdESYSpD6Gno6PBF", "Braxlaw"),
+c("IVEptX7IC14LBqCda", "Ziminrax")
 ))
 names(keys) <- c("key", "user")
