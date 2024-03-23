@@ -1,6 +1,7 @@
 # please note, keys are encrypted
 keys <- as.data.frame(rbind(
 c("BOffyS8pMm5RFtHnB", "keenan") ,
-c("BYmPB0dwbBaYUFY5I", "mrhyde")
+c("BYmPB0dwbBaYUFY5I", "mrhyde") ,
+c("KAdESYSpD6Gno6PBF", "Braxlaw")
 ))
 names(keys) <- c("key", "user")
