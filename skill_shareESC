@@ -1,2 +1,5 @@
-"BOfyS8pMm5RFtHnB",   #keenan
-"BYmB0dwbBaYUFY5I")
+keylist <- as.data.frame(rbind(
+c("BOffyS8pMm5RFtHnB", "keenan")
+c("BYmPB0dwbBaYUFY5I", "mrhyde")
+))
+names(keys) <- c("key", "user")
