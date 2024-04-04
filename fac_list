@@ -1,6 +1,8 @@
 # list
 faction_data <- as.data.frame(list(
-  FactionName = c('~Twisted~',
+  FactionName = c(
+  'Escensio Incursus',
+  '~Twisted~',
   '39th Street Healers',
   '39th Street Killers',
   '39th Street Killers X',
@@ -49,7 +51,6 @@ faction_data <- as.data.frame(list(
 'Elements',
 'Emergency Room',
 'Endless Endeavor',
-'Escensio Incursus',
 'Evolution',
 'FLATLINE',
 'FLUX',
@@ -202,6 +203,7 @@ faction_data <- as.data.frame(list(
 'WTF Medical',
 'Xenon'), 
   FactionID = c(
+  '21368',
   '14078',
   '7049',
   '19',
@@ -251,7 +253,6 @@ faction_data <- as.data.frame(list(
   '10739',
   '9745',
   '14686',
-  '21368',
   '366',
   '36891',
   '8766',
