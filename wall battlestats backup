@@ -12,7 +12,7 @@
 // @connect     tornstats.com
 // ==/UserScript==
 
-let manualApiKey = "lDW5vAPBOdQojcJw";
+let manualApiKey = "XXXX";
 
 /*
  * -------------------------------------------------------------------------
