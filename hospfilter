@@ -1,0 +1,1019 @@
+// ==UserScript==
+// @name         Hosp Filter
+// @author       keenan
+// @namespace    local.torn.hospital-networth-popup
+// @version      1.0
+// @description  Shows Hospital users matching an reason filter, hospital time, networth, war status
+// @match        https://www.torn.com/hospitalview.php*
+// @match        https://www.torn.com/*
+// @run-at       document-idle
+// @grant        GM_addStyle
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_deleteValue
+// @grant        GM_xmlhttpRequest
+// @connect      api.torn.com
+// ==/UserScript==
+
+(() => {
+  'use strict';
+
+  const API_KEY_STORAGE = 'tm_torn_hospital_networth_api_key';
+  const API_REQUEST_DELAY_MS = 750;
+  const PAGE_SIZE = 50;
+  const PAGE_LOAD_TIMEOUT_MS = 15_000;
+  const DEFAULT_REASON_FILTER = 'emesis OR hemolytic';
+
+  const SELECTORS = {
+    list: '.userlist-wrapper.hospital-list-wrapper',
+    profile: 'a.user.name[href*="profiles.php?XID="]',
+    reason: '.info-wrap .reason',
+    timeLeft: [
+      '.info-wrap .time-left',
+      '.info-wrap .timeLeft',
+      '.info-wrap .timeleft',
+      '.info-wrap .time-remaining',
+      '.info-wrap .time',
+      '.info-wrap .timer',
+      '.time-left',
+      '.timeLeft',
+      '.timeleft',
+      '.time-remaining',
+      '.timer',
+      '[data-time-left]',
+      '[data-timeleft]',
+      '[data-remaining]',
+    ],
+  };
+
+  const IDS = {
+    panel: 'tm-hospital-popup-tools',
+    popup: 'tm-hospital-match-popup',
+    filter: 'tm-hospital-reason-filter',
+  };
+
+  GM_addStyle(`
+    #${IDS.panel} {
+      position: sticky;
+      top: 8px;
+      z-index: 99999;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 9px;
+      margin: 8px 0;
+      padding: 10px;
+      border: 1px solid #777;
+      border-radius: 7px;
+      background: #222;
+      color: #f2f2f2;
+      font: 13px/1.4 Arial, sans-serif;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, .35);
+    }
+
+    #${IDS.panel} button,
+    #${IDS.popup} button {
+      min-height: 30px;
+      padding: 5px 10px;
+      border: 1px solid #777;
+      border-radius: 4px;
+      background: #3e6f2e;
+      color: #fff !important;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    #${IDS.panel} button:hover,
+    #${IDS.popup} button:hover {
+      background: #528b3b;
+    }
+
+    #${IDS.panel} button:disabled,
+    #${IDS.popup} button:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+    }
+
+    #${IDS.panel} button.tm-secondary,
+    #${IDS.popup} button.tm-secondary {
+      background: #444;
+    }
+
+    #${IDS.popup} button.tm-nav {
+      background: #2f4f6f;
+    }
+
+    #${IDS.popup} button.tm-nav:hover:not(:disabled) {
+      background: #3d6690;
+    }
+
+    #${IDS.panel} button.tm-danger {
+      background: #7b3434;
+    }
+
+    #${IDS.panel} input {
+      min-height: 30px;
+      width: 260px;
+      padding: 5px 8px;
+      border: 1px solid #777;
+      border-radius: 4px;
+      background: #333;
+      color: #fff;
+      font: inherit;
+    }
+
+    #${IDS.panel} label.tm-filter-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #${IDS.panel} details {
+      flex-basis: 100%;
+    }
+
+    #${IDS.panel} .tm-key-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-top: 8px;
+    }
+
+    #${IDS.panel} .tm-note,
+    #${IDS.popup} .tm-popup-note {
+      color: #c5c5c5 !important;
+      font-size: 12px;
+    }
+
+    #${IDS.popup} {
+      position: fixed;
+      inset: 8vh 8vw;
+      z-index: 1000000;
+      overflow: auto;
+      padding: 18px;
+      border: 1px solid #888;
+      border-radius: 8px;
+      background: #1d1d1d;
+      color: #f3f3f3;
+      color-scheme: dark;
+      font: 13px/1.4 Arial, sans-serif;
+      box-shadow: 0 12px 48px rgba(0, 0, 0, .72);
+    }
+
+    #${IDS.popup} .tm-popup-header {
+      position: sticky;
+      top: -18px;
+      z-index: 1;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 0;
+      background: #1d1d1d;
+    }
+
+    #${IDS.popup} .tm-popup-title {
+      flex: 1 1 240px;
+      font-size: 15px;
+      color: #f3f3f3 !important;
+    }
+
+    #${IDS.popup} .tm-api-status {
+      width: 100%;
+      color: #efd275 !important;
+      font-size: 12px;
+    }
+
+    #${IDS.popup} table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #1d1d1d !important;
+    }
+
+    #${IDS.popup} th,
+    #${IDS.popup} td,
+    #${IDS.popup} td *,
+    #${IDS.popup} th * {
+      color: #f3f3f3 !important;
+    }
+
+    #${IDS.popup} th,
+    #${IDS.popup} td {
+      padding: 6px 8px;
+      border: 1px solid #555 !important;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    #${IDS.popup} thead th {
+      background: #333 !important;
+      font-weight: bold;
+    }
+
+    #${IDS.popup} tbody tr,
+    #${IDS.popup} tbody tr td {
+      background: #1d1d1d !important;
+    }
+
+    #${IDS.popup} tbody tr:nth-child(even),
+    #${IDS.popup} tbody tr:nth-child(even) td {
+      background: #262626 !important;
+    }
+
+    #${IDS.popup} tbody tr:hover td {
+      background: #303a2c !important;
+    }
+
+    #${IDS.popup} td a.tm-link {
+      color: #8cc4ff !important;
+      text-decoration: underline;
+    }
+
+    #${IDS.popup} td a.tm-link:hover {
+      color: #b8dcff !important;
+    }
+
+    #${IDS.popup} .tm-num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    #${IDS.popup} td.tm-war-yes {
+      color: #ff8a80 !important;
+      font-weight: bold;
+    }
+
+    #${IDS.popup} td.tm-war-no {
+      color: #8fe88f !important;
+    }
+
+    #${IDS.popup} td.tm-error {
+      color: #ffb3a7 !important;
+    }
+
+    #${IDS.popup} td.tm-muted {
+      color: #9a9a9a !important;
+    }
+
+    #${IDS.popup} .tm-empty {
+      padding: 14px;
+      border: 1px solid #555;
+      color: #ddd !important;
+    }
+  `);
+
+  // ---------------------------------------------------------------------------
+  // Page parsing and editable reason filter
+  // ---------------------------------------------------------------------------
+
+  function getHospitalRows() {
+    const list = document.querySelector(SELECTORS.list);
+    if (!list) return [];
+    const rows = [...list.querySelectorAll(SELECTORS.profile)]
+      .map((link) => link.closest('li'))
+      .filter(Boolean);
+    return [...new Set(rows)];
+  }
+
+  function readHospitalTimeLeft(row) {
+    for (const selector of SELECTORS.timeLeft) {
+      const node = row.querySelector(selector);
+      if (!node) continue;
+      const text = (node.textContent || '').trim().replace(/\s+/g, ' ');
+      if (text) return text;
+      const attribute = node.getAttribute('data-time-left') ||
+        node.getAttribute('data-timeleft') || node.getAttribute('data-remaining');
+      if (attribute) return attribute.trim();
+    }
+    return '';
+  }
+
+  function extractPlayer(row) {
+    const profile = row.querySelector(SELECTORS.profile);
+    if (!profile) return null;
+    const id = new URL(profile.href, location.origin).searchParams.get('XID');
+    const title = profile.getAttribute('title') || '';
+
+    return {
+      id,
+      name: profile.dataset.placeholder ||
+        title.replace(/\s+\d+\s*$/, '') || profile.textContent.trim(),
+      reason: row.querySelector(SELECTORS.reason)?.textContent.trim() || '',
+      row,
+      timeLeft: readHospitalTimeLeft(row),
+      hospitalUntil: null,
+      netWorth: null,
+      netWorthError: '',
+      age: null,
+      lastAction: null,
+      factionId: null,
+      profileLoaded: false,
+      profileError: '',
+      factionName: null,
+      atWar: null,
+      warDetail: '',
+      warError: '',
+    };
+  }
+
+  // A plain phrase checks for that phrase. "OR" (case-insensitive) separates
+  // alternatives; no regular-expression syntax is required in the text box.
+  function parseReasonFilter(value) {
+    return value.split(/\s+OR\s+/i).map((part) => part.trim()).filter(Boolean);
+  }
+
+  function getMatchingPlayers(filterText) {
+    const terms = parseReasonFilter(filterText);
+    const players = getHospitalRows()
+      .map(extractPlayer)
+      .filter(Boolean)
+      .filter((player) => player.id &&
+        (terms.length === 0 || terms.some((term) =>
+          player.reason.toLowerCase().includes(term.toLowerCase()))));
+    return [...new Map(players.map((player) => [player.id, player])).values()];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Hospital pagination
+  // ---------------------------------------------------------------------------
+
+  function getCurrentStart() {
+    const match = location.hash.match(/start=(\d+)/);
+    return match ? Number(match[1]) : 0;
+  }
+
+  function getPageNumber(start = getCurrentStart()) {
+    return Math.floor(start / PAGE_SIZE) + 1;
+  }
+
+  function getPageSignature() {
+    return getHospitalRows()
+      .map((row) => row.querySelector(SELECTORS.profile)?.href || '')
+      .join('|');
+  }
+
+  function setHashStart(start) {
+    let hash = location.hash.replace(/^#/, '');
+    if (/start=\d+/.test(hash)) {
+      hash = hash.replace(/start=\d+/, `start=${start}`);
+    } else {
+      hash = hash ? `${hash}&start=${start}` : `start=${start}`;
+    }
+    location.hash = hash;
+  }
+
+  async function waitForPageChange(oldSignature, timeoutMs = PAGE_LOAD_TIMEOUT_MS) {
+    const deadline = Date.now() + timeoutMs;
+    let previous = null;
+    while (Date.now() < deadline) {
+      await sleep(300);
+      const signature = getPageSignature();
+      if (signature && signature !== oldSignature) {
+        if (signature === previous) return true;
+        previous = signature;
+      }
+    }
+    return false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function formatMoney(value) {
+    if (!Number.isFinite(value)) return 'Not loaded';
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency', currency: 'USD', maximumFractionDigits: 0,
+    }).format(value);
+  }
+
+  function formatAge(days) {
+    if (!Number.isFinite(days)) return 'Not loaded';
+    return `${new Intl.NumberFormat('en-US').format(days)} days`;
+  }
+
+  function formatTimestamp(seconds) {
+    if (!Number.isFinite(Number(seconds))) return 'Unavailable';
+    return `${new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).format(new Date(Number(seconds) * 1000))} TCT (GMT+0000)`;
+  }
+
+  function formatRemaining(seconds) {
+    const total = Math.max(0, Math.ceil(seconds));
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    return days
+      ? `${days}d ${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+      : `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+
+  function hospitalTimeLeft(player) {
+    if (player.row?.isConnected && player.row.closest(SELECTORS.list)) {
+      const latest = readHospitalTimeLeft(player.row);
+      if (latest) player.timeLeft = latest;
+    }
+    if (player.timeLeft) return player.timeLeft;
+    if (player.hospitalUntil && player.hospitalUntil > Date.now() / 1000) {
+      return formatRemaining(player.hospitalUntil - Date.now() / 1000);
+    }
+    return 'Unavailable';
+  }
+
+  function profileUrl(userId) {
+    return `https://www.torn.com/profiles.php?XID=${encodeURIComponent(userId)}`;
+  }
+
+  function factionUrl(factionId) {
+    return `https://www.torn.com/factions.php?step=profile&ID=${encodeURIComponent(factionId)}`;
+  }
+
+  function sleep(milliseconds) {
+    return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  }
+
+  // ---------------------------------------------------------------------------
+  // API key storage
+  // ---------------------------------------------------------------------------
+
+  async function saveApiKey(value) {
+    const key = value.trim();
+    if (!key) throw new Error('Paste a Torn API key before saving.');
+    await GM_setValue(API_KEY_STORAGE, key);
+  }
+
+  async function getApiKey() {
+    return String(await GM_getValue(API_KEY_STORAGE, '')).trim();
+  }
+
+  async function clearApiKey() {
+    await GM_deleteValue(API_KEY_STORAGE);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Torn API
+  // ---------------------------------------------------------------------------
+
+  let lastRequestAt = 0;
+
+  async function throttle() {
+    const wait = lastRequestAt + API_REQUEST_DELAY_MS - Date.now();
+    if (wait > 0) await sleep(wait);
+    lastRequestAt = Date.now();
+  }
+
+  async function tornApiGet(path, params, apiKey) {
+    await throttle();
+    return new Promise((resolve, reject) => {
+      const url = new URL(`https://api.torn.com/v2/${path}`);
+      Object.entries(params || {}).forEach(([name, value]) => url.searchParams.set(name, value));
+      url.searchParams.set('key', apiKey.trim());
+
+      GM_xmlhttpRequest({
+        method: 'GET',
+        url: url.toString(),
+        headers: { Accept: 'application/json' },
+        timeout: 15_000,
+        onload: (response) => {
+          let payload;
+          try {
+            payload = JSON.parse(response.responseText);
+          } catch {
+            reject(new Error(`Invalid JSON returned by Torn (HTTP ${response.status}): ` +
+              response.responseText.slice(0, 300)));
+            return;
+          }
+          if (response.status < 200 || response.status >= 300) {
+            reject(new Error(payload?.error?.error || payload?.error?.message ||
+              `HTTP ${response.status}`));
+            return;
+          }
+          if (payload?.error) {
+            reject(new Error(payload.error.error || payload.error.message ||
+              JSON.stringify(payload.error)));
+            return;
+          }
+          resolve(payload);
+        },
+        onerror: (response) => {
+          reject(new Error(`Network request failed${response?.status ?
+            ` (HTTP ${response.status})` : ''}.`));
+        },
+        ontimeout: () => reject(new Error('Torn API request timed out.')),
+      });
+    });
+  }
+
+  async function requestNetWorth(userId, apiKey) {
+    const payload = await tornApiGet(
+      `user/${encodeURIComponent(userId)}/personalstats`, { cat: 'networth' }, apiKey
+    );
+    const netWorth = payload?.personalstats?.networth?.total;
+    if (!Number.isFinite(netWorth)) {
+      throw new Error('Torn returned a successful response, but personalstats.networth.total was absent.');
+    }
+    return netWorth;
+  }
+
+  async function requestProfile(userId, apiKey) {
+    const payload = await tornApiGet(`user/${encodeURIComponent(userId)}/profile`, {}, apiKey);
+    const profile = payload?.profile;
+    if (!profile) {
+      throw new Error('Torn returned a successful response, but "profile" was absent.');
+    }
+    const lastAction = profile.last_action?.relative ?? payload.last_action?.relative ?? null;
+    const age = Number.isFinite(Number(profile.age)) ? Number(profile.age) : null;
+    const rawFactionId = profile.faction_id ?? profile.faction?.faction_id;
+    const factionId = Number.isFinite(Number(rawFactionId)) && Number(rawFactionId) > 0
+      ? Number(rawFactionId) : null;
+    const status = profile.status ?? payload.status;
+    const until = Number(status?.until);
+    const hospitalUntil = /hosp/i.test(String(status?.state || '')) &&
+      Number.isFinite(until) && until > 0 ? until : null;
+    return { lastAction, age, factionId, hospitalUntil };
+  }
+
+  function classifyWar(payload) {
+    const ranked = payload?.wars?.ranked;
+    if (!ranked) return { atWar: false, detail: 'No ranked war' };
+
+    const now = Date.now() / 1000;
+    const start = Number(ranked.start);
+    if (!Number.isFinite(start)) {
+      throw new Error('Ranked war returned without a valid start timestamp.');
+    }
+    const opponents = (ranked.factions || []).map((f) => f.name).join(' vs ');
+    if (start > now) {
+      return { atWar: false,
+        detail: `Pending war (${opponents}) starts ${formatTimestamp(start)}` };
+    }
+    const end = ranked.end == null ? null : Number(ranked.end);
+    if (end !== null && Number.isFinite(end) && end <= now) {
+      return { atWar: false, detail: `War ended ${formatTimestamp(end)}` };
+    }
+    return { atWar: true,
+      detail: `Active war (${opponents}) since ${formatTimestamp(start)}` };
+  }
+
+  function factionNameFromWars(payload, factionId) {
+    const factions = payload?.wars?.ranked?.factions || [];
+    const match = factions.find((f) => Number(f.id) === Number(factionId));
+    return match?.name || null;
+  }
+
+  async function requestFactionName(factionId, apiKey) {
+    const payload = await tornApiGet(`faction/${encodeURIComponent(factionId)}/basic`, {}, apiKey);
+    return payload?.basic?.name ?? payload?.name ?? null;
+  }
+
+  async function requestFactionInfo(factionId, apiKey) {
+    const warsPayload = await tornApiGet(`faction/${encodeURIComponent(factionId)}/wars`, {}, apiKey);
+    const { atWar, detail } = classifyWar(warsPayload);
+    let factionName = factionNameFromWars(warsPayload, factionId);
+    if (!factionName) {
+      try {
+        factionName = await requestFactionName(factionId, apiKey);
+      } catch (error) {
+        console.warn(`Could not load name for faction ${factionId}:`, error);
+        factionName = null;
+      }
+    }
+    return { atWar, detail, factionName };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Popup rendering
+  // ---------------------------------------------------------------------------
+
+  function renderFactionCell(player) {
+    if (player.profileError) return '<td class="tm-error">Profile could not be loaded</td>';
+    if (!player.profileLoaded) return '<td class="tm-muted">Not loaded</td>';
+    if (!player.factionId) return '<td class="tm-muted">No faction</td>';
+    const label = player.factionName || `Faction ${player.factionId}`;
+    return `
+      <td title="Faction ID: ${escapeHtml(player.factionId)}">
+        <a class="tm-link" href="${escapeHtml(factionUrl(player.factionId))}"
+           target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>
+      </td>`;
+  }
+
+  function renderPopupTable(popup, players, filterText) {
+    const target = popup.querySelector('#tm-popup-table');
+    if (!target) return;
+    if (!players.length) {
+      target.innerHTML = `
+        <div class="tm-empty">
+          No currently loaded Hospital rows matched “${escapeHtml(filterText || 'any reason')}”.
+        </div>`;
+      return;
+    }
+
+    target.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Member name</th>
+            <th>Faction</th>
+            <th class="tm-num">Age</th>
+            <th class="tm-num">Net worth</th>
+            <th>Last action</th>
+            <th class="tm-num">Time left in hospital</th>
+            <th>Faction is at war?</th>
+            <th>Hospital reason</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${players.map((player) => {
+            const netWorthText = player.netWorthError
+              ? `Error: ${player.netWorthError}` : formatMoney(player.netWorth);
+            const netWorthClass = player.netWorthError ? 'tm-error' :
+              Number.isFinite(player.netWorth) ? '' : 'tm-muted';
+
+            let ageText = 'Not loaded';
+            let ageClass = 'tm-muted';
+            let lastActionText = 'Not loaded';
+            let lastActionClass = 'tm-muted';
+            if (player.profileError) {
+              ageText = 'Error';
+              ageClass = 'tm-error';
+              lastActionText = `Error: ${player.profileError}`;
+              lastActionClass = 'tm-error';
+            } else if (player.profileLoaded) {
+              ageText = Number.isFinite(player.age) ? formatAge(player.age) : 'Unavailable';
+              ageClass = Number.isFinite(player.age) ? '' : 'tm-muted';
+              lastActionText = player.lastAction || 'Unavailable';
+              lastActionClass = player.lastAction ? '' : 'tm-muted';
+            }
+
+            let warText = 'Not loaded';
+            let warClass = 'tm-muted';
+            if (player.warError) {
+              warText = `Error: ${player.warError}`;
+              warClass = 'tm-error';
+            } else if (player.atWar === true) {
+              warText = 'Yes';
+              warClass = 'tm-war-yes';
+            } else if (player.atWar === false) {
+              warText = 'No';
+              warClass = 'tm-war-no';
+            }
+
+            const timeLeft = hospitalTimeLeft(player);
+            return `
+              <tr>
+                <td title="Member ID: ${escapeHtml(player.id)}">
+                  <a class="tm-link" href="${escapeHtml(profileUrl(player.id))}"
+                     target="_blank" rel="noopener noreferrer">${escapeHtml(player.name)}</a>
+                </td>
+                ${renderFactionCell(player)}
+                <td class="tm-num ${ageClass}">${escapeHtml(ageText)}</td>
+                <td class="tm-num ${netWorthClass}">${escapeHtml(netWorthText)}</td>
+                <td class="${lastActionClass}">${escapeHtml(lastActionText)}</td>
+                <td class="tm-num ${timeLeft === 'Unavailable' ? 'tm-muted' : ''}">${escapeHtml(timeLeft)}</td>
+                <td class="${warClass}" title="${escapeHtml(player.warDetail)}">${escapeHtml(warText)}</td>
+                <td>${escapeHtml(player.reason)}</td>
+              </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  function setPopupStatus(popup, text) {
+    const status = popup.querySelector('.tm-api-status');
+    if (status) status.textContent = text;
+  }
+
+  function updatePopupHeader(popup, state) {
+    const title = popup.querySelector('.tm-popup-title');
+    if (title) {
+      title.textContent = `Hospital reason matches — ${state.players.length} found ` +
+        `(page ${getPageNumber()})`;
+    }
+  }
+
+  function updateControls(popup, state) {
+    const busy = state.loadingApi || state.changingPage;
+    popup.querySelector('#tm-popup-prev-page').disabled = busy || getCurrentStart() <= 0;
+    popup.querySelector('#tm-popup-next-page').disabled = busy;
+    popup.querySelector('#tm-popup-load-networth').disabled = busy;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Loading API data
+  // ---------------------------------------------------------------------------
+
+  async function loadApiDataForPlayers(popup, state, button) {
+    if (state.loadingApi || state.changingPage) return;
+    const players = state.players;
+    const apiKey = await getApiKey();
+    if (!apiKey) {
+      setPopupStatus(popup,
+        'No API key saved. Open “Official Torn API settings” on the Hospital page and save your key first.');
+      return;
+    }
+    if (!players.length) return;
+
+    const factionCache = new Map();
+    state.loadingApi = true;
+    updateControls(popup, state);
+
+    try {
+      for (let index = 0; index < players.length; index += 1) {
+        const player = players[index];
+        const progress = `${index + 1} of ${players.length}`;
+        button.textContent = `Loading ${index + 1}/${players.length}`;
+
+        setPopupStatus(popup, `Net worth for ${player.name} [${player.id}] — ${progress}`);
+        try {
+          player.netWorth = await requestNetWorth(player.id, apiKey);
+          player.netWorthError = '';
+        } catch (error) {
+          player.netWorth = null;
+          player.netWorthError = error.message || String(error);
+        }
+        renderPopupTable(popup, players, state.filterText);
+
+        setPopupStatus(popup, `Profile for ${player.name} [${player.id}] — ${progress}`);
+        try {
+          const { lastAction, age, factionId, hospitalUntil } =
+            await requestProfile(player.id, apiKey);
+          player.lastAction = lastAction;
+          player.age = age;
+          player.factionId = factionId;
+          player.hospitalUntil = hospitalUntil;
+          player.profileLoaded = true;
+          player.profileError = '';
+        } catch (error) {
+          player.lastAction = null;
+          player.age = null;
+          player.factionId = null;
+          player.hospitalUntil = null;
+          player.profileLoaded = false;
+          player.profileError = error.message || String(error);
+        }
+        renderPopupTable(popup, players, state.filterText);
+
+        if (player.profileError) {
+          player.factionName = null;
+          player.atWar = null;
+          player.warDetail = '';
+          player.warError = 'Profile could not be loaded';
+        } else if (!player.factionId) {
+          player.factionName = null;
+          player.atWar = false;
+          player.warDetail = 'Not in a faction';
+          player.warError = '';
+        } else {
+          setPopupStatus(popup,
+            `Faction ${player.factionId} for ${player.name} [${player.id}] — ${progress}`);
+          if (!factionCache.has(player.factionId)) {
+            factionCache.set(player.factionId, requestFactionInfo(player.factionId, apiKey));
+          }
+          try {
+            const { atWar, detail, factionName } = await factionCache.get(player.factionId);
+            player.factionName = factionName;
+            player.atWar = atWar;
+            player.warDetail = detail;
+            player.warError = '';
+          } catch (error) {
+            player.factionName = null;
+            player.atWar = null;
+            player.warDetail = '';
+            player.warError = error.message || String(error);
+          }
+        }
+        renderPopupTable(popup, players, state.filterText);
+      }
+
+      const netWorthOk = players.filter((p) => Number.isFinite(p.netWorth)).length;
+      const profileOk = players.filter((p) => p.profileLoaded).length;
+      const warOk = players.filter((p) => p.atWar !== null).length;
+      const atWarCount = players.filter((p) => p.atWar === true).length;
+      setPopupStatus(popup,
+        `Finished: net worth ${netWorthOk}/${players.length}, ` +
+        `profile ${profileOk}/${players.length}, ` +
+        `war status ${warOk}/${players.length} (${atWarCount} at war). ` +
+        `Unique factions looked up: ${factionCache.size}.`);
+
+      console.table(players.map((player) => ({
+        name: player.name,
+        id: player.id,
+        age: player.age,
+        netWorth: player.netWorth,
+        lastAction: player.lastAction,
+        timeLeftInHospital: hospitalTimeLeft(player),
+        hospitalUntilTCT: player.hospitalUntil ? formatTimestamp(player.hospitalUntil) : '',
+        factionId: player.factionId,
+        factionName: player.factionName,
+        atWar: player.atWar,
+        warDetail: player.warDetail,
+        errors: [player.netWorthError, player.profileError, player.warError]
+          .filter(Boolean).join(' | '),
+        reason: player.reason,
+      })));
+    } finally {
+      state.loadingApi = false;
+      button.textContent = 'Load API data';
+      updateControls(popup, state);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Page navigation
+  // ---------------------------------------------------------------------------
+
+  async function changeHospitalPage(popup, state, direction) {
+    const currentStart = getCurrentStart();
+    const nextStart = Math.max(0, currentStart + direction * PAGE_SIZE);
+    if (nextStart === currentStart) return;
+    const oldSignature = getPageSignature();
+    state.changingPage = true;
+    updateControls(popup, state);
+    setPopupStatus(popup, `Loading Hospital page ${getPageNumber(nextStart)}…`);
+    try {
+      setHashStart(nextStart);
+      const changed = await waitForPageChange(oldSignature);
+      state.players = getMatchingPlayers(state.filterText);
+      updatePopupHeader(popup, state);
+      renderPopupTable(popup, state.players, state.filterText);
+      if (changed) {
+        setPopupStatus(popup,
+          `Showing Hospital page ${getPageNumber()} — ${state.players.length} match(es). ` +
+          'Click “Load API data” to fetch details for this page.');
+      } else if (!getHospitalRows().length) {
+        setPopupStatus(popup,
+          `Hospital page ${getPageNumber()} has no rows (probably past the last page). ` +
+          'Use “Previous page” to go back.');
+      } else {
+        setPopupStatus(popup,
+          `The Hospital list did not change within ${PAGE_LOAD_TIMEOUT_MS / 1000}s. ` +
+          'This may be the last page, or Torn is loading slowly.');
+      }
+      console.table(state.players.map((player) => ({
+        name: player.name,
+        id: player.id,
+        timeLeftInHospital: hospitalTimeLeft(player),
+        reason: player.reason,
+      })));
+    } finally {
+      state.changingPage = false;
+      updateControls(popup, state);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Popup
+  // ---------------------------------------------------------------------------
+
+  function createPopup(players, filterText) {
+    document.getElementById(IDS.popup)?.remove();
+    const state = { players, filterText, loadingApi: false, changingPage: false };
+    const popup = document.createElement('section');
+    popup.id = IDS.popup;
+    popup.innerHTML = `
+      <div class="tm-popup-header">
+        <strong class="tm-popup-title"></strong>
+        <button type="button" class="tm-nav" id="tm-popup-prev-page">&larr; Previous page</button>
+        <button type="button" class="tm-nav" id="tm-popup-next-page">Next page &rarr;</button>
+        <button type="button" id="tm-popup-load-networth">Load API data</button>
+        <button type="button" class="tm-secondary" id="tm-popup-close">Close</button>
+        <div class="tm-api-status"></div>
+      </div>
+
+      <p class="tm-popup-note">
+        Current reason filter: <span id="tm-popup-filter-description"></span>.
+        Hospital time is read from each row where available (API profile status is a fallback).
+        Net worth, age, last action, faction and war status are fetched only after you click “Load API data”.
+        Changing page refreshes the list only — it does not call the API.
+        War timestamps use TCT (GMT+0000); “Faction is at war?” is Yes only for a ranked war
+        that has started and not ended (hover the cell for details).
+      </p>
+
+      <div id="tm-popup-table"></div>`;
+    document.body.appendChild(popup);
+    popup.querySelector('#tm-popup-filter-description').textContent =
+      filterText || 'all reasons';
+    updatePopupHeader(popup, state);
+    renderPopupTable(popup, state.players, state.filterText);
+    updateControls(popup, state);
+
+    popup.querySelector('#tm-popup-close').addEventListener('click', () => popup.remove());
+    popup.querySelector('#tm-popup-prev-page').addEventListener('click', () => {
+      changeHospitalPage(popup, state, -1);
+    });
+    popup.querySelector('#tm-popup-next-page').addEventListener('click', () => {
+      changeHospitalPage(popup, state, 1);
+    });
+    popup.querySelector('#tm-popup-load-networth').addEventListener('click', (event) => {
+      loadApiDataForPlayers(popup, state, event.currentTarget);
+    });
+  }
+
+  function openMatchingPopup() {
+    const filterText = document.getElementById(IDS.filter)?.value.trim() ??
+      DEFAULT_REASON_FILTER;
+    const players = getMatchingPlayers(filterText);
+    console.table(players.map((player) => ({
+      name: player.name,
+      id: player.id,
+      timeLeftInHospital: hospitalTimeLeft(player),
+      reason: player.reason,
+    })));
+    createPopup(players, filterText);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Panel
+  // ---------------------------------------------------------------------------
+
+  function mountButton() {
+    if (document.getElementById(IDS.panel)) return;
+    const list = document.querySelector(SELECTORS.list);
+    if (!list) return;
+    const panel = document.createElement('section');
+    panel.id = IDS.panel;
+    panel.innerHTML = `
+      <label class="tm-filter-label" for="${IDS.filter}">
+        Hospital reason filter
+        <input id="${IDS.filter}" type="text" spellcheck="false"
+               value="${DEFAULT_REASON_FILTER}" aria-label="Hospital reason filter">
+      </label>
+      <button type="button" id="tm-open-hospital-popup">Open reason-match list</button>
+      <span class="tm-note">Use OR between alternatives; matching ignores case.
+        Clear the box to show all rows on this Hospital page.</span>
+      <details>
+        <summary>Official Torn API settings</summary>
+        <div class="tm-key-controls">
+          <input id="tm-torn-api-key" type="password" autocomplete="off"
+                 placeholder="Paste personal Torn API key">
+          <button type="button" class="tm-secondary" id="tm-save-torn-api-key">
+            Save key locally
+          </button>
+          <button type="button" class="tm-danger" id="tm-clear-torn-api-key">
+            Clear saved key
+          </button>
+        </div>
+        <p class="tm-note">
+          The key is stored in Tampermonkey’s local script storage and is sent
+          only to api.torn.com after you click “Load API data”.
+        </p>
+      </details>`;
+    list.before(panel);
+
+    panel.querySelector('#tm-open-hospital-popup')
+      .addEventListener('click', openMatchingPopup);
+    panel.querySelector(`#${IDS.filter}`).addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') openMatchingPopup();
+    });
+    panel.querySelector('#tm-save-torn-api-key')
+      .addEventListener('click', async () => {
+        const input = panel.querySelector('#tm-torn-api-key');
+        try {
+          await saveApiKey(input.value);
+          input.value = '';
+          input.placeholder = 'API key saved locally';
+          alert('Torn API key saved in Tampermonkey local storage.');
+        } catch (error) {
+          alert(error.message);
+        }
+      });
+    panel.querySelector('#tm-clear-torn-api-key')
+      .addEventListener('click', async () => {
+        await clearApiKey();
+        const input = panel.querySelector('#tm-torn-api-key');
+        input.value = '';
+        input.placeholder = 'Saved API key cleared';
+        alert('Saved Torn API key cleared.');
+      });
+  }
+
+  function initialise() {
+    if (!document.body?.dataset.page?.includes('hospital')) return;
+    mountButton();
+  }
+
+  let queued = false;
+  new MutationObserver(() => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      initialise();
+    });
+  }).observe(document.documentElement, { childList: true, subtree: true });
+  initialise();
+})();
